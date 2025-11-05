@@ -1,0 +1,20 @@
+{
+  "name": "image-gen-app",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "build:css": "tailwindcss -i ./src/input.css -o ./public/assets/tailwind.css --minify",
+    "watch:css": "tailwindcss -i ./src/input.css -o ./public/assets/tailwind.css --watch"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.16"
+  }
+}

@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prompt → Image Generator</title>
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .skeleton {
+      background: linear-gradient(90deg, #eee 25%, #f5f5f5 37%, #eee 63%);
+      background-size: 400% 100%;
+      animation: shimmer 1.4s ease infinite;
+    }
+    @keyframes shimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: 0 0; }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900">
+  <div class="max-w-5xl mx-auto px-4 py-8">
+    <header class="mb-6">
+      <h1 class="text-3xl font-bold tracking-tight">Prompt → Image</h1>
+      <p class="text-gray-600 mt-1">Describe the image you want and let the model do the rest.</p>
+    </header>
+
+    <!-- Prompt Card -->
+    <div class="bg-white rounded-2xl shadow p-5">
+      <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">Your prompt</label>
+      <textarea id="prompt" class="w-full rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 p-3"
+        rows="4" placeholder="e.g., ‘a cozy reading nook with warm sunlight, mid-century chair, plants, photorealistic’"></textarea>
+
+      <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Size</label>
+          <select id="size" class="w-full rounded-xl border border-gray-300 p-2 focus:ring-2 focus:ring-indigo-500">
+            <option value="512x512">512 × 512 (fast)</option>
+            <option value="768x768" selected>768 × 768 (balanced)</option>
+            <option value="1024x1024">1024 × 1024 (detailed)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Images</label>
+          <select id="count" class="w-full rounded-xl border border-gray-300 p-2 focus:ring-2 focus:ring-indigo-500">
+            <option>1</option>
+            <option selected>2</option>
+            <option>3</option>
+            <option>4</option>
+          </select>
+        </div>
+        <div class="flex items-end">
+          <button id="generateBtn"
+                  class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 text-white font-medium py-2.5 hover:bg-indigo-700 active:scale-[.99] transition">
+            <span>Generate</span>
+            <svg id="spinner" class="h-5 w-5 hidden animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor"
+                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <p id="error" class="text-sm text-red-600 mt-3 hidden"></p>
+    </div>
+
+    <!-- Results -->
+    <section class="mt-8">
+      <h2 class="text-xl font-semibold mb-3">Results</h2>
+      <div id="resultsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Cards injected here -->
+      </div>
+    </section>
+
+    <!-- History -->
+    <section class="mt-10">
+      <div class="flex items-center gap-3">
+        <h2 class="text-xl font-semibold">History</h2>
+        <button id="clearHistory" class="text-sm text-gray-600 hover:text-red-600 underline">clear</button>
+      </div>
+      <div id="history" class="mt-3 space-y-3">
+        <!-- Past prompts rendered here -->
+      </div>
+    </section>
+
+    <footer class="mt-12 text-xs text-gray-500">
+      <p>Tip: Be specific about style, lighting, composition, and materials for best results.</p>
+    </footer>
+  </div>
+
+  <script>
+    const promptEl = document.getElementById("prompt");
+    const sizeEl = document.getElementById("size");
+    const countEl = document.getElementById("count");
+    const generateBtn = document.getElementById("generateBtn");
+    const spinner = document.getElementById("spinner");
+    const resultsGrid = document.getElementById("resultsGrid");
+    const errorEl = document.getElementById("error");
+    const historyEl = document.getElementById("history");
+    const clearHistoryBtn = document.getElementById("clearHistory");
+
+    const HISTORY_KEY = "imageGenHistoryV1";
+
+    function setLoading(isLoading) {
+      if (isLoading) {
+        spinner.classList.remove("hidden");
+        generateBtn.disabled = true;
+        generateBtn.classList.add("opacity-70", "cursor-not-allowed");
+      } else {
+        spinner.classList.add("hidden");
+        generateBtn.disabled = false;
+        generateBtn.classList.remove("opacity-70", "cursor-not-allowed");
+      }
+    }
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.remove("hidden");
+    }
+
+    function clearError() {
+      errorEl.textContent = "";
+      errorEl.classList.add("hidden");
+    }
+
+    function skeletonCard() {
+      const card = document.createElement("div");
+      card.className = "rounded-2xl overflow-hidden bg-white shadow p-3";
+      const box = document.createElement("div");
+      box.className = "skeleton h-56 w-full rounded-xl";
+      card.appendChild(box);
+      return card;
+    }
+
+    function downloadURI(uri, name) {
+      const link = document.createElement("a");
+      link.href = uri;
+      link.download = name || "image.png";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function renderResult(imgSrc, promptText) {
+      const card = document.createElement("div");
+      card.className = "rounded-2xl overflow-hidden bg-white shadow flex flex-col";
+
+      const img = document.createElement("img");
+      img.src = imgSrc;
+      img.alt = promptText;
+      img.className = "w-full object-cover aspect-square";
+
+      const bottom = document.createElement("div");
+      bottom.className = "p-3 flex items-center justify-between gap-3";
+
+      const promptCap = document.createElement("p");
+      promptCap.className = "text-xs text-gray-600 line-clamp-2";
+      promptCap.textContent = promptText;
+
+      const btns = document.createElement("div");
+      btns.className = "flex items-center gap-2";
+      const dl = document.createElement("button");
+      dl.className = "text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200";
+      dl.textContent = "Download";
+      dl.onclick = () => downloadURI(imgSrc, "generated.png");
+
+      const cp = document.createElement("button");
+      cp.className = "text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200";
+      cp.textContent = "Copy prompt";
+      cp.onclick = async () => {
+        await navigator.clipboard.writeText(promptText);
+        cp.textContent = "Copied!";
+        setTimeout(() => (cp.textContent = "Copy prompt"), 1000);
+      };
+
+      btns.appendChild(dl);
+      btns.appendChild(cp);
+      bottom.appendChild(promptCap);
+      bottom.appendChild(btns);
+
+      card.appendChild(img);
+      card.appendChild(bottom);
+      resultsGrid.prepend(card);
+    }
+
+    function loadHistory() {
+      historyEl.innerHTML = "";
+      const items = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+      for (const it of items.slice(-10).reverse()) {
+        const row = document.createElement("div");
+        row.className = "bg-white rounded-xl shadow p-3 flex items-start gap-3";
+        const badge = document.createElement("span");
+        badge.className = "text-[10px] px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full";
+        badge.textContent = it.size;
+        const text = document.createElement("div");
+        const p = document.createElement("p");
+        p.className = "text-sm";
+        p.textContent = it.prompt;
+        const meta = document.createElement("p");
+        meta.className = "text-xs text-gray-500 mt-0.5";
+        meta.textContent = new Date(it.ts).toLocaleString();
+        text.appendChild(p);
+        text.appendChild(meta);
+        row.appendChild(badge);
+        row.appendChild(text);
+        row.addEventListener("click", () => {
+          promptEl.value = it.prompt;
+          sizeEl.value = it.size;
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+        historyEl.appendChild(row);
+      }
+    }
+
+    function saveHistory(prompt, size) {
+      const items = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+      items.push({ prompt, size, ts: Date.now() });
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(-50)));
+      loadHistory();
+    }
+
+    clearHistoryBtn.addEventListener("click", () => {
+      localStorage.removeItem(HISTORY_KEY);
+      loadHistory();
+    });
+
+    generateBtn.addEventListener("click", async () => {
+      clearError();
+      const prompt = promptEl.value.trim();
+      const size = sizeEl.value;
+      const n = parseInt(countEl.value, 10) || 1;
+      if (!prompt) {
+        showError("Please enter a prompt.");
+        return;
+      }
+
+      // Skeletons
+      setLoading(true);
+      const skels = [];
+      for (let i = 0; i < n; i++) {
+        const s = skeletonCard();
+        resultsGrid.prepend(s);
+        skels.push(s);
+      }
+
+      try {
+        const resp = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, n, size })
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          showError(`Failed: ${errText}`);
+          return;
+        }
+
+        const data = await resp.json();
+        const images = data.images || [];
+        skels.forEach((el) => el.remove());
+        images.forEach((src) => renderResult(src, prompt));
+        saveHistory(prompt, size);
+      } catch (e) {
+        skels.forEach((el) => el.remove());
+        showError("Network or server error. Check console and server logs.");
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    // init
+    loadHistory();
+  </script>
+</body>
+</html>
